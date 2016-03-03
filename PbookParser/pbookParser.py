@@ -20,9 +20,9 @@ import sys, commands, os, datetime
 ### run with : $ python parsePbookOut.py [pbookLogFile]
 
 idFlag = "HtX4Tops_00-00-01"     
-autoRetry = False
-newSite = True
-newOpts = {'memory': 2000}
+autoRetry = True
+newSite = False
+newOpts = {}#{'memory': 2000}
 
 
 ## ///////////////////////////////////////// ##
