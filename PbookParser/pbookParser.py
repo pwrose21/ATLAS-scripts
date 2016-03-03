@@ -1,5 +1,8 @@
 import sys, commands, os, datetime
 
+
+"test"
+
 ### This script can be used to parse the output of pbook
 ### It will create three output files :
 ###    a list of "done" jobs -- all succeeded
