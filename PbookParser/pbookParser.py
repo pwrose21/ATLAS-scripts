@@ -18,9 +18,19 @@ idFlag = "HtX4Tops_00-00-01"
 autoRetry = True
 newSite = False
 newOpts = {}#{'memory': 2000}
+skipLogFiles = True
+logFileIdentifier = '.log'
+
+status_done = ['done']
+status_active = ['registered', 'defined', 'pending', 'ready',
+                 'assigning', 'scouting', 'scouted', 
+                 'throttled','running', 'prepared']
+status_retry = ['failed', 'finished', 'exhausted']
+status_broken = ['tobroken', 'broken', 'aborting', 'aborted']
 
 
 # ----------------------------------------------------------------------------
+
 
 def main():
 
@@ -29,7 +39,7 @@ def main():
         sys.exit("\n    ERROR::pbook not available.  Please execute $ lsetup panda\n")
     
     # create the pbook log
-    f = OpenPBookLog()
+    f = GetPBookLog()
     
     # get the list of jobs
     myJobs = GetJobsFromPBookLog(f)
@@ -43,14 +53,100 @@ def main():
         if not status in statusList:
             print "         " + status
             statusList.add(status)
+    print "\n"
 
-    # 
+    # sort and write output
+    SortJobsandWriteOutput(myJobs)
+
+    sys.exit("")
+
+def MakeRetryCommand(iJob):
+    cmdRetry = 'pbook -c "retry(' + iJob['jediTaskID']
+    if newSite:
+        cmdRetry = cmdRetry + ',newSite=True'
+    if len(newOpts)>0:
+        cmdRetry = cmdRetry + ',newOpts={'
+        for i,key in enumerate(newOpts):
+            if i==0:
+                cmdRetry = cmdRetry + '\'' + key + '\':' + str(newOpts[key])
+            else:
+                cmdRetry = cmdRetry + ',\'' + key + '\':' + str(newOpts[key])
+        cmdRetry = cmdRetry + '}'
+    cmdRetry = cmdRetry + ')"'
+    return cmdRetry
 
 
-    sys.exit("Debugging")
+def SortJobsandWriteOutput(myJobs):
+    print "INFO : Sorting jobs according to 'taskStatus'"
+    print "       Jobs with status in", status_done, "are considered successful"
+    print "       Jobs with status in", status_active, "are considered still active"
+    print "       Jobs with status in", status_retry, "are considered failed, but can be retried"
+    print "       Jobs with status in", status_broken, "are considered failed, and need to be resubmitted"
+
+    doneJobs = []
+    activeJobs = []
+    retryJobs = []
+    brokenJobs = []
+    for iJob in myJobs:
+        status = iJob['taskStatus']
+        if status in status_done:
+            doneJobs.append(iJob)
+        if status in status_active:
+            activeJobs.append(iJob)
+        if status in status_retry:
+            retryJobs.append(iJob)
+        if status in status_broken:
+            brokenJobs.append(iJob)
+        if not status in (status_done + status_active + status_retry + status_broken):
+            print "ERROR : Unrecognized status --", status
+
+    if len(myJobs) != len(doneJobs + activeJobs + retryJobs + brokenJobs):
+        print "WARNING : Inital number of jobs:", len(myJobs)
+        print "          Sorted number of jobs:", len(doneJobs + activeJobs+ retryJobs + brokenJobs)
 
 
-    
+    print "\nINFO : Total number of jobs         : " + str(len(myJobs)) 
+    print "         Number of done jobs        : " + str(len(doneJobs)) 
+    print "         Number of active jobs      : " + str(len(activeJobs)) 
+    print "         Number of jobs to retry    : " + str(len(retryJobs)) 
+    print "         Number of jobs to resubmit : " + str(len(brokenJobs))
+    print "\n"
+
+    # list of datasets to download
+    download_list = open("datasets_to_download", 'w')    
+    for iJob in doneJobs:
+        outDS = iJob['outDS']
+        outDS = outDS.split(',')
+        for iDS in outDS:
+            if skipLogFiles and logFileIdentifier in iDS:
+                continue
+            download_list.write(iDS + '\n')
+    download_list.close()
+
+    retry_cmd     = open("retry_commands.sh", 'w')
+    for iJob in retryJobs:
+        cmdRetry = MakeRetryCommand(iJob)
+        retry_cmd.write("echo \"" + cmdRetry.replace('"', "'") + "\"\n")
+        retry_cmd.write(cmdRetry+'\n')
+    retry_cmd.close()
+
+    params        = open("broken_params.sh", 'w')
+    for iJob in brokenJobs:
+        jobParams = iJob['params']
+        jobParams = jobParams.replace('outTarBall', 'inTarBall')
+        params.write("echo \"" + jobParams.replace('"', "'") + "\"\n")
+        params.write(jobParams)
+    params.close()
+
+    print "\nINFO : The datasets that should be downloaded have been written to: datasets_to_download.txt"
+    print "INFO : The jobs that should be retried can be retried with $ source retry_commands.sh"
+    print "INFO : The jobs that should be resubmitted are written to broken_params.sh"
+    print "       WARNING : For resubmission, you will need to setup your original   "
+    print "         environment, move to your original submit directory, and change"
+    print "         the outDS container name!"
+
+    return True
+
 def printAndRun(cmd):
     print '\n'+cmd
     os.system(cmd)
@@ -59,7 +155,7 @@ def CheckForPBook():
     status, output = commands.getstatusoutput("which pbook")
     return (status==0)
 
-def OpenPBookLog(f = 'pbook_show_out.txt'):
+def GetPBookLog(f = 'pbook_show_out.txt'):
     # sync pbook jobs
     cmdSync = "pbook -c \"sync()\""
     printAndRun(cmdSync)
@@ -126,173 +222,3 @@ def GetJobsFromPBookLog(f):
 
 if __name__ == '__main__':
     main()
-    
-
-
-#print "rm pbook_show_out.txt"
-#os.system("rm pbook_show_out.txt")
-
-#exhaustive list of status :
-# registered, defined, assigning, ready, pending,
-# scouting, scouted, running, prepared, done, failed,
-# finished, aborting, aborted, finishing, topreprocess,
-# preprocessing, tobroken, broken, toretry, toincexec,
-# rerefine, paused, throttled, exhausted, passed
-
-# jobs finished fine, ready to download
-# status in ['done']
-doneDSs = []
-
-# jobs fid not finish properly, can be retried
-#   intervention automatic in script
-# status in ['failed', 'finished', 'exhausted']
-retryIDs = []
-retryDSs = []
-
-# jobs currently running
-# status in ['registered', 'defined', 'pending', 'ready', 'assigning', 'scouting', 'scouted', 'throttled', 'running', 'prepared']
-activeIDs = []
-activeDSs = []
-
-# jobs broken. need manual intervention
-# status in ['tobroken', 'broken', 'aborting', 'aborted']
-brokenDSs = []
-brokenParams = []
-
-otherDSs = []
-otherIDs = []
-
-
-## sort jobs based on status
-## extract the useful information
-for iJob in myJobs:
-    if not idFlag in iJob['outDS']:
-        print 'ERROR::FLAG NOT FOUND IN OUTDS!!!'
-        print 'Problem in job filtering for job:' , iJob
-        continue
-
-    status = iJob['taskStatus']
-    taskID = iJob['jediTaskID']
-    inDS   = iJob['inDS']
-    outDS  = iJob['outDS']
-    params = iJob['params']
-
-    if status in ['done']:
-        doneDSs.append(outDS)
-    elif status in ['failed', 'finished', 'exhausted']:
-        retryIDs.append(taskID)
-        retryDSs.append(inDS)
-    elif status in ['tobroken', 'broken', 'aborting', 'aborted']:
-        brokenDSs.append(inDS)
-        brokenParams.append(params)
-    elif status in ['registered', 'defined', 'pending', 'ready', 
-                    'assigning', 'scouting', 'scouted', 'throttled', 
-                    'running', 'prepared']:
-        activeIDs.append(taskID)
-        activeDSs.append(inDS)
-    else:
-        print "Status: " , status, "not recognized!!!"
-
-## can automatically retry jobs
-for i in retryIDs:
-    cmdRetry = 'pbook -c "retry(' + str(i)
-    if newSite:
-        cmdRetry = cmdRetry + ',newSite=True'
-    if len(newOpts)>0:
-        cmdRetry = cmdRetry + ',newOpts={'
-        for i,key in enumerate(newOpts):
-            if i==0:
-                cmdRetry = cmdRetry + '\'' + key + '\':' + str(newOpts[key])
-            else:
-                cmdRetry = cmdRetry + ',\'' + key + '\':' + str(newOpts[key])
-        cmdRetry = cmdRetry + '}'
-    cmdRetry = cmdRetry + ')"'
-    print cmdRetry
-    if autoRetry:
-        os.system(cmdRetry)
-    else:
-        print "autoRetry OFF!!! Command not executed!\n\n"
-        
-## make output file summaries
-f = open("retry_params.txt", 'w')
-for iparam in brokenParams:
-    f.write(iparam.split("--inDS=")[1].split(" --outDS=")[0] + '\n')
-    f.write(iparam + '\n\n')
-f.close()
-
-f = open("job_summary.txt", 'w')
-f.write("These jobs have finished and can be downloaded!\n")
-f.write("-----------------------------------------------\n")
-for iDS in doneDSs:
-    f.write(iDS + '\n')
-
-f.write("\nThese jobs are actively running:\n")
-f.write(  "--------------------------------\n")
-for iD in activeIDs:
-    f.write(iD + '\n')
-
-if autoRetry:
-    f.write("\nThese jobs were retried:\n")
-    f.write(  "------------------------\n")
-else:
-    f.write("\nThese jobs should be retried:\n")
-    f.write(  "-----------------------------\n")
-for iD in retryIDs:
-    f.write(iD + '\n')
-
-f.write("\nThese jobs are broken and should be resubmitted:\n")
-f.write(  "------------------------------------------------\n")
-for iDS in brokenDSs:
-    f.write(iDS + '\n')
-f.close()
-
-sys.exit("Debugging")
-
-
-
-
-#activeIDs = activeIDs - doneIDs
-#retryIDs = retryIDs - (doneIDs | activeIDs)
-#retry(15,newSite=True,newOpts={'nGBperJob':10})
-
-
-print "active IDs"
-print activeIDs
-
-
-print "retry IDs"
-print retryIDs
-
-# some datasets may have been submitted multipls times
-# if initial jobs were broken
-doneDSs = set(doneDSs)
-activeDSs = set(activeDSs)
-retryDSs = set(retryDSs)
-brokenDSs = set(brokenDSs)
-
-activeDSs = activeDSs - doneDSs
-retryDSs = retryDSs - (doneDSs | activeDSs)
-brokenDSs = brokenDSs - (doneDSs | activeDSs | retryDSs)
-
-f = open('job_summary.txt', 'w')
-f.write("The following datasets have been analyzed successfully:\n")
-f.write("-------------------------------------------------------\n")
-for i in doneDSs:
-    f.write(i + '\n')
-
-f.write("\nThe following datasets are actively running:\n")
-f.write(  "--------------------------------------------\n")
-for i in activeDSs:
-    f.write(i + '\n')
-
-f.write("\nThe following datasets were retried:\n")
-f.write(  "------------------------------------\n")
-for i in retryDSs:
-    f.write(i + '\n')
-
-f.write("\nThe following datasets are broken and NEED MANUAL INTERVENTION:\n")
-f.write(  "---------------------------------------------------------------\n")
-for i in brokenDSs:
-    f.write(i + '\n')
-
-f.close()
