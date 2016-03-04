@@ -282,6 +282,9 @@ def GetJobsFromPBookLog(f):
     myJobs = []
     m_file = open(f)
     f_iter = iter(m_file)
+    print "\nINFO : Removing duplicate tasks with the same jediTaskID by keeping the most recent 'lastUpdate'"
+    print "INFO : Removing duplicate tasks with the same inDS by keeping the most recent 'creationTime'"
+
     for line in f_iter:
         # each new task starts with this line
         if("======================================") in line:
