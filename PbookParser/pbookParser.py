@@ -56,8 +56,8 @@ newSite = False
 newOpts = {}#{'memory': 2000}
 
 # download options -------
-skipLogFiles = True
-logFileIdentifier = ['.log']
+skipLogFiles = False
+logFileIdentifier = []
 
 # sorting options --------------------------------------------------------------
 status_done = ['done'] # jobs to be downloaded
@@ -143,7 +143,7 @@ def ParseCommandLineOptions(argv):
                     try:
                         val[i+1] = int(val[i+1])
                     except:
-                        pass
+                        val[i+1] = "'" + val[i+1] + "'"
                     newOpts[v] = val[i+1]
 
 
