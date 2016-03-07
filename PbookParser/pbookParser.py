@@ -203,6 +203,16 @@ def SortJobsandWriteOutput(myJobs):
     print "         Number of jobs to resubmit : " + str(len(brokenJobsIdx))
     print "\n"
 
+    for i, iJob in enumerate(activeJobsIdx):
+        cmdShow = "pbook -c \"show(" + myJobs[iJob]['jediTaskID'] + ")\""
+        if i==0:
+            cmdShow = cmdShow + " > active_job_status.txt"
+        else:
+            cmdShow = cmdShow + " >> active_job_status.txt"
+        printAndRun(cmdShow)
+        os.system("echo \"\" >> active_job_status.txt")
+        
+
     # list of datasets to download
     download_list = open("datasets_to_download.txt", 'w')    
     for i in doneJobsIdx:
