@@ -314,11 +314,12 @@ def GetJobsFromPBookLog(f):
             # veto jobs without the idFlat
             if not idFlag in thisJob['outDS']:
                 continue
-            
+        
             # check for overlaps -- needToAppend flag keeps track
             needToAppend = True
             needToAppend = needToAppend and RemoveDuplicateJobs(thisJob, myJobs, 'jediTaskID', 'lastUpdate')
-            needToAppend = needToAppend and RemoveDuplicateJobs(thisJob, myJobs, 'inDS', 'creationTime')
+            if thisJob['inDS']:
+                needToAppend = needToAppend and RemoveDuplicateJobs(thisJob, myJobs, 'inDS', 'creationTime')
 
             if needToAppend:
                 myJobs.append(thisJob)
