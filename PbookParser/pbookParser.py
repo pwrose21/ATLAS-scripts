@@ -28,6 +28,9 @@ OPTIONS
     -e PATTERN1[,PATTERN2,...,], --exclude PATTERN1[,PATTERN2,...,]
         Exclude datasets with this pattern when writing download list, e.g. files containing ".log"
 
+    -f FILE
+        Use an external pbook_log    
+
 AUTHOR
     Peyton Rose <prose@ucsc.edu>
 
@@ -36,7 +39,8 @@ AUTHOR
 ## imports ##
 ## /////// ##
 
-import os, sys, commands 
+import os, sys, commands
+import subprocess 
 import getopt
 import datetime
 
@@ -67,7 +71,7 @@ status_active = ['registered', 'defined', 'pending', 'ready',
 status_retry = ['failed', 'finished', 'exhausted'] # jobs to retry
 status_broken = ['tobroken', 'broken', 'aborting', 'aborted'] # jobs to resubmit
 
-
+extFile = ''
 # ----------------------------------------------------------------------------------
 
 
@@ -81,7 +85,7 @@ def main(argv):
     print "       Use new site on retry?        :", boolToYN(newSite)
     print "       Excluded download identifiers :", logFileIdentifier 
     print "       New opts for retry            :", newOpts
-
+    print "       Ext. pbook log                :", extFile
 
     # check that pbook is setup
     if not CheckForPBook():
@@ -110,10 +114,11 @@ def ParseCommandLineOptions(argv):
     global newOpts
     global skipLogFiles
     global logFileIdentifier
+    global extFile
 
     ## parse options
-    _short_options = 'hni:o:e:'
-    _long_options = ['help', 'newSite', 'identifier=', 'newOpts=','exclude=']
+    _short_options = 'hni:o:e:f:'
+    _long_options = ['help', 'newSite', 'identifier=', 'newOpts=','exclude=','file=']
     try:
         opts, args = getopt.gnu_getopt(argv, _short_options, _long_options)
     except getopt.GetoptError:
@@ -131,6 +136,8 @@ def ParseCommandLineOptions(argv):
         if opt in ('-e', '--exclude'):
             skipLogFiles = True
             logFileIdentifier = val.split(',')
+        if opt in ('-f', '--file'):
+            extFile = val
         if opt in ('-o', '--newOpts'):
             val = val.split(':')
             if len(val)%2 == 1:
@@ -203,15 +210,15 @@ def SortJobsandWriteOutput(myJobs):
     print "         Number of jobs to resubmit : " + str(len(brokenJobsIdx))
     print "\n"
 
+    g = open('active_job_status.txt', 'w')
     for i, iJob in enumerate(activeJobsIdx):
-        cmdShow = "pbook -c \"show(" + myJobs[iJob]['jediTaskID'] + ")\""
-        if i==0:
-            cmdShow = cmdShow + " > active_job_status.txt"
-        else:
-            cmdShow = cmdShow + " >> active_job_status.txt"
-        printAndRun(cmdShow)
-        os.system("echo \"\" >> active_job_status.txt")
-        
+        for item in ['jediTaskID', 'inDS', 'outDS', 'taskStatus']:
+            g.write(item + ' : ' + myJobs[iJob][item] + '\n')
+        g.write('inputStatus : \n')
+        for i in myJobs[iJob]['inputStatus']:
+            g.write('     ' + i + ' : ' + myJobs[iJob]['inputStatus'][i] + '\n')
+        g.write('\n')
+    g.close()
 
     # list of datasets to download
     download_list = open("datasets_to_download.txt", 'w')    
@@ -239,7 +246,7 @@ def SortJobsandWriteOutput(myJobs):
         jobParams = iJob['params']
         jobParams = jobParams.replace('outTarBall', 'inTarBall')
         params.write("echo \"" + jobParams.replace('"', "'") + "\"\n")
-        params.write(jobParams)
+        params.write(jobParams+'\n')
     params.close()
 
     print "\nINFO : The datasets that should be downloaded have been written to: datasets_to_download.txt"
@@ -254,19 +261,28 @@ def SortJobsandWriteOutput(myJobs):
 def printAndRun(cmd):
     print '\n'+cmd
     os.system(cmd)
+    #proc = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE)
+    #subprocess.Popen(cmdList,stdout=subprocess.PIPE)
+    #return proc
 
 def CheckForPBook():
+    if extFile:
+        return True
     status, output = commands.getstatusoutput("which pbook")
     return (status==0)
 
 def GetPBookLog(f = 'pbook_show_out.txt'):
+    if extFile:
+        return extFile
     # sync pbook jobs
     cmdSync = "pbook -c \"sync()\""
     printAndRun(cmdSync)
+    #proc.wait()
 
     #show pbook jobs
     cmdShow = "pbook -c \"show()\" > " + f
     printAndRun(cmdShow)
+    #proc.wait()
     return f
 
 def ConvertTimeToDateTime(timeString):
@@ -303,9 +319,18 @@ def GetJobsFromPBookLog(f):
             # task ends with a blank line
             # all lines before this have " : " in them
             while " : " in line:
-                linesplit = line.split(" : ")
-                thisJob[linesplit[0].strip()] = linesplit[1].strip()
-                line = next(f_iter)
+                if not "inputStatus" in line:
+                    linesplit = line.split(" : ")
+                    thisJob[linesplit[0].strip()] = linesplit[1].strip()
+                    line = next(f_iter)
+                else:
+                    thisJob["inputStatus"] = {}
+                    line = next(f_iter)
+                    while " : " in line:
+                        #print line
+                        linesplit = line.split(" : ")
+                        thisJob["inputStatus"][linesplit[0].strip()] = linesplit[1].strip()
+                        line = next(f_iter)
 
             # convert times into a useful format
             thisJob['lastUpdate'] = ConvertTimeToDateTime(thisJob['lastUpdate'])
